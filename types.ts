@@ -6,14 +6,12 @@ export enum TaskPriority {
 }
 
 export enum TaskCategory {
-  WORK = 'WORK',
-  PERSONAL = 'PERSONAL',
-  SHOPPING = 'SHOPPING',
-  HEALTH = 'HEALTH',
-  OTHER = 'OTHER'
+  WORK = 'Công việc',
+  PERSONAL = 'Cá nhân',
+  SHOPPING = 'Mua sắm',
+  HEALTH = 'Sức khỏe',
+  OTHER = 'Khác'
 }
-
-export type Language = 'vi' | 'en';
 
 export interface Task {
   id: string;
@@ -26,6 +24,7 @@ export interface Task {
   createdAt: number;
 }
 
+// Added AIPlanResponse interface to fix the import error in geminiService.ts
 export interface AIPlanResponse {
   tasks: {
     title: string;
@@ -37,5 +36,5 @@ export interface AIPlanResponse {
 
 export interface UserStats {
   completedDaysCount: number;
-  lastCompletionDate: string | null;
+  lastCompletionDate: string | null; // Định dạng YYYY-MM-DD
 }

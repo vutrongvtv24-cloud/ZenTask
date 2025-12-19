@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Task, TaskPriority, Language } from '../types';
+import { Task, TaskPriority } from '../types';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -10,10 +10,10 @@ interface TaskItemProps {
   onDelete: (id: string) => void;
   isDark?: boolean;
   isFirst?: boolean;
-  lang: Language;
 }
 
-const getPriorityStyles = (priority: TaskPriority) => {
+const getPriorityStyles = (priority: TaskPriority, isDark: boolean) => {
+  // Vibrant solid colors for clear distinction
   switch (priority) {
     case TaskPriority.HIGH: 
       return 'bg-rose-600 text-white border-rose-700 shadow-sm shadow-rose-200';
@@ -26,38 +26,8 @@ const getPriorityStyles = (priority: TaskPriority) => {
   }
 };
 
-const labels = {
-  vi: {
-    high: 'Quan trọng',
-    medium: 'Trung bình',
-    low: 'Ưu tiên thấp',
-    top: 'Ưu tiên #1',
-    confirm: 'Xác nhận xóa',
-    cancel: 'Hủy',
-    work: 'Công việc',
-    personal: 'Cá nhân',
-    shopping: 'Mua sắm',
-    health: 'Sức khỏe',
-    other: 'Khác'
-  },
-  en: {
-    high: 'High',
-    medium: 'Medium',
-    low: 'Low',
-    top: 'Top Priority',
-    confirm: 'Confirm delete',
-    cancel: 'Cancel',
-    work: 'Work',
-    personal: 'Personal',
-    shopping: 'Shopping',
-    health: 'Health',
-    other: 'Other'
-  }
-};
-
-export const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onDelete, isDark = false, isFirst = false, lang }) => {
+export const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onDelete, isDark = false, isFirst = false }) => {
   const [isConfirming, setIsConfirming] = useState(false);
-  const t = labels[lang];
   
   const {
     attributes,
@@ -74,21 +44,20 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onDelete, is
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const getPriorityText = (priority: TaskPriority) => {
-    if (priority === TaskPriority.HIGH) return t.high;
-    if (priority === TaskPriority.MEDIUM) return t.medium;
-    return t.low;
-  };
-
-  const getCategoryText = (cat: string) => {
-    const key = cat.toLowerCase() as keyof typeof t;
-    return t[key] || cat;
-  };
-
-  // Fix: Added missing handleDeleteClick function to handle confirmation state toggle
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsConfirming(true);
+  };
+
+  const handleCancelDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsConfirming(false);
+  };
+
+  const handleConfirmDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDelete(task.id);
+    setIsConfirming(false);
   };
 
   return (
@@ -103,6 +72,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onDelete, is
           : (isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100')
       } ${isFirst && !task.completed ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-transparent' : ''}`}
     >
+      {/* Drag Handle */}
       <button 
         {...attributes} 
         {...listeners}
@@ -133,7 +103,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onDelete, is
           </h3>
           {isFirst && !task.completed && (
             <span className="bg-indigo-600 text-[8px] text-white px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter animate-pulse">
-              {t.top}
+              Ưu tiên #1
             </span>
           )}
         </div>
@@ -145,13 +115,13 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onDelete, is
         )}
 
         <div className="flex flex-wrap gap-2 mt-2.5">
-          <span className={`text-[9px] px-2 py-0.5 rounded-lg border uppercase font-black tracking-wider ${getPriorityStyles(task.priority)}`}>
-            {getPriorityText(task.priority)}
+          <span className={`text-[9px] px-2 py-0.5 rounded-lg border uppercase font-black tracking-wider ${getPriorityStyles(task.priority, isDark)}`}>
+            {task.priority === TaskPriority.HIGH ? 'Quan trọng' : task.priority === TaskPriority.MEDIUM ? 'Trung bình' : 'Ưu tiên thấp'}
           </span>
           <span className={`text-[9px] px-2 py-0.5 rounded-lg border font-bold uppercase tracking-tight ${
             isDark ? 'bg-slate-900 border-slate-700 text-slate-500' : 'border-slate-100 text-slate-400 bg-white'
           }`}>
-            {getCategoryText(task.category)}
+            {task.category}
           </span>
         </div>
       </div>
@@ -160,16 +130,16 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onDelete, is
         {isConfirming ? (
           <div className="flex items-center gap-1 animate-in slide-in-from-right-2 duration-200">
             <button 
-              onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
+              onClick={handleConfirmDelete}
               className="w-8 h-8 rounded-lg bg-rose-500 text-white flex items-center justify-center shadow-lg active:scale-90 transition-transform"
-              title={t.confirm}
+              title="Xác nhận xóa"
             >
               <i className="fa-solid fa-check text-[10px]"></i>
             </button>
             <button 
-              onClick={(e) => { e.stopPropagation(); setIsConfirming(false); }}
+              onClick={handleCancelDelete}
               className="w-8 h-8 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center active:scale-90 transition-transform"
-              title={t.cancel}
+              title="Hủy"
             >
               <i className="fa-solid fa-xmark text-[10px]"></i>
             </button>
