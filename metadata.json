@@ -1,0 +1,5 @@
+{
+  "name": "ZenTask",
+  "description": "Một ứng dụng quản lý công việc (Todo List) đơn giản, tập trung vào hiệu suất với bộ đếm Pomodoro và hệ thống thăng cấp độ người dùng.",
+  "requestFramePermissions": []
+}
