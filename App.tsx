@@ -9,7 +9,6 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  DragEndEvent,
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -18,84 +17,38 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 
-const DailyProgressRing: React.FC<{ current: number; total: number; color: string; isDark: boolean }> = ({ current, total, color, isDark }) => {
-  const radius = 36;
-  const stroke = 8;
-  const normalizedRadius = radius - stroke * 2;
-  const circumference = normalizedRadius * 2 * Math.PI;
-  const percentage = total > 0 ? (current / total) * 100 : 0;
-  const strokeDashoffset = circumference - (percentage / 100) * circumference;
-
-  return (
-    <div className="relative inline-flex items-center justify-center transform transition-transform hover:scale-110 duration-300">
-      <svg height={radius * 2} width={radius * 2} className="transform -rotate-90">
-        <circle
-          stroke={isDark ? '#1e293b' : '#f1f5f9'}
-          fill="transparent"
-          strokeWidth={stroke}
-          r={normalizedRadius}
-          cx={radius}
-          cy={radius}
-        />
-        <circle
-          stroke="currentColor"
-          fill="transparent"
-          strokeWidth={stroke}
-          strokeDasharray={circumference + ' ' + circumference}
-          style={{ strokeDashoffset, transition: 'stroke-dashoffset 1s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-          strokeLinecap="round"
-          className={`${color} ${current === total && current > 0 ? 'drop-shadow-[0_0_8px_currentColor]' : ''}`}
-          r={normalizedRadius}
-          cx={radius}
-          cy={radius}
-        />
-      </svg>
-      <div className="absolute flex flex-col items-center justify-center">
-        <span className={`text-lg font-black leading-none ${isDark ? 'text-white' : 'text-slate-800'}`}>
-          {current}
-        </span>
-        <div className={`w-4 h-0.5 my-0.5 opacity-30 ${isDark ? 'bg-white' : 'bg-slate-800'}`}></div>
-        <span className="text-[10px] font-bold opacity-40 uppercase tracking-tighter">{total}</span>
-      </div>
-      {current === total && current > 0 && (
-        <div className="absolute -top-1 -right-1 bg-amber-400 text-white w-5 h-5 rounded-full flex items-center justify-center shadow-lg animate-bounce z-10">
-          <i className="fa-solid fa-crown text-[10px]"></i>
-        </div>
-      )}
-    </div>
-  );
-};
-
 const App: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [activeTab, setActiveTab] = useState<'ALL' | 'ACTIVE' | 'DONE'>('ALL');
-  
-  const [stats, setStats] = useState<UserStats>({
-    completedDaysCount: 0,
-    lastCompletionDate: null
-  });
+  const [activeTab, setActiveTab] = useState<'ALL' | 'ACTIVE' | 'DONE' | 'TIMER'>('ALL');
+  const [stats, setStats] = useState<UserStats>({ completedDaysCount: 0, lastCompletionDate: null });
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // DND Sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
-  // Pomodoro States
-  const [timerMode, setTimerMode] = useState<'WORK' | 'REST'>('WORK');
+  // Timer states
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [showTimerAlert, setShowTimerAlert] = useState(false);
   const timerIntervalRef = useRef<number | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   useEffect(() => {
     const savedTasks = localStorage.getItem('zen_tasks');
     const savedStats = localStorage.getItem('zen_stats');
     if (savedTasks) setTasks(JSON.parse(savedTasks));
     if (savedStats) setStats(JSON.parse(savedStats));
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'n' && document.activeElement !== inputRef.current) {
+        e.preventDefault();
+        setActiveTab('ALL'); // Switch back to task view if on timer
+        setTimeout(() => inputRef.current?.focus(), 50);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   useEffect(() => {
@@ -103,45 +56,19 @@ const App: React.FC = () => {
     localStorage.setItem('zen_stats', JSON.stringify(stats));
   }, [tasks, stats]);
 
-  // Timer Logic
   useEffect(() => {
     if (isTimerRunning && timeLeft > 0) {
-      timerIntervalRef.current = window.setInterval(() => {
-        setTimeLeft(prev => prev - 1);
-      }, 1000);
+      timerIntervalRef.current = window.setInterval(() => setTimeLeft(prev => prev - 1), 1000);
     } else if (timeLeft === 0) {
-      handleTimerComplete();
+      setIsTimerRunning(false);
+      if (Notification.permission === 'granted') {
+        new Notification("ZenTask", { body: "Hết giờ! Nghỉ ngơi hoặc quay lại làm việc nào." });
+      } else {
+        alert("Thời gian đã hết!");
+      }
     }
-    return () => {
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    };
+    return () => { if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); };
   }, [isTimerRunning, timeLeft]);
-
-  const handleTimerComplete = () => {
-    setIsTimerRunning(false);
-    setShowTimerAlert(true);
-    
-    if ("vibrate" in navigator) {
-      navigator.vibrate([1000, 500, 1000, 500, 1000]);
-    }
-  };
-
-  const startNextCycle = () => {
-    if ("vibrate" in navigator) {
-      navigator.vibrate(0);
-    }
-    const nextMode = timerMode === 'WORK' ? 'REST' : 'WORK';
-    setTimerMode(nextMode);
-    setTimeLeft(nextMode === 'WORK' ? 25 * 60 : 5 * 60);
-    setShowTimerAlert(false);
-    setIsTimerRunning(true);
-  };
-
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
 
   const currentLevel = useMemo(() => {
     if (stats.completedDaysCount >= 90) return 4;
@@ -150,13 +77,16 @@ const App: React.FC = () => {
     return 1;
   }, [stats.completedDaysCount]);
 
-  const themeClasses = useMemo(() => {
-    switch (currentLevel) {
-      case 2: return { bg: 'bg-emerald-50', text: 'text-emerald-900', primary: 'bg-emerald-600', accent: 'text-emerald-600', ringColor: 'text-emerald-500', isDark: false };
-      case 3: return { bg: 'bg-indigo-100', text: 'text-indigo-950', primary: 'bg-indigo-700', accent: 'text-indigo-700', ringColor: 'text-indigo-500', isDark: false };
-      case 4: return { bg: 'bg-slate-950', text: 'text-white', primary: 'bg-fuchsia-600', accent: 'text-fuchsia-400', ringColor: 'text-fuchsia-500', isDark: true };
-      default: return { bg: 'bg-slate-50', text: 'text-slate-900', primary: 'bg-indigo-600', accent: 'text-indigo-600', ringColor: 'text-indigo-500', isDark: false };
-    }
+  const theme = useMemo(() => {
+    const isDark = currentLevel === 4;
+    return {
+      isDark,
+      bg: isDark ? 'bg-slate-950' : 'bg-slate-50',
+      panel: isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100',
+      text: isDark ? 'text-white' : 'text-slate-900',
+      primary: isDark ? 'bg-fuchsia-600' : 'bg-indigo-600',
+      primaryText: isDark ? 'text-fuchsia-400' : 'text-indigo-600',
+    };
   }, [currentLevel]);
 
   const tasksCreatedToday = useMemo(() => {
@@ -164,93 +94,26 @@ const App: React.FC = () => {
     return tasks.filter(t => new Date(t.createdAt).toDateString() === today);
   }, [tasks]);
 
-  const completedTodayCount = useMemo(() => {
-    return tasksCreatedToday.filter(t => t.completed).length;
-  }, [tasksCreatedToday]);
+  const completedTodayCount = tasksCreatedToday.filter(t => t.completed).length;
 
-  const dailyProgressPercent = useMemo(() => {
-    return Math.min((completedTodayCount / 2) * 100, 100);
-  }, [completedTodayCount]);
+  const updatePriorities = (items: Task[]) => items.map((t, i) => ({
+    ...t, 
+    priority: i === 0 ? TaskPriority.HIGH : i === 1 ? TaskPriority.MEDIUM : TaskPriority.LOW 
+  }));
 
-  // Helper function to recalculate all priorities based on current order
-  const updatePrioritiesByOrder = (items: Task[]): Task[] => {
-    return items.map((item, idx) => {
-      let p = TaskPriority.LOW;
-      if (idx === 0) p = TaskPriority.HIGH;
-      else if (idx === 1) p = TaskPriority.MEDIUM;
-      return { ...item, priority: p };
-    });
-  };
-
-  const addTask = async (e?: React.FormEvent) => {
+  const addTask = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-    if (tasksCreatedToday.length >= 2) {
-      alert("Hôm nay bạn đã đạt giới hạn 2 Task!");
-      return;
-    }
-    const title = newTaskTitle;
-    setNewTaskTitle('');
-    
+    if (!newTaskTitle.trim() || tasksCreatedToday.length >= 2) return;
     const newTask: Task = {
       id: crypto.randomUUID(),
-      title: title,
+      title: newTaskTitle,
       completed: false,
-      priority: tasks.length === 0 ? TaskPriority.HIGH : TaskPriority.MEDIUM,
-      category: TaskCategory.OTHER,
+      priority: TaskPriority.LOW,
+      category: TaskCategory.WORK,
       createdAt: Date.now()
     };
-    
-    setTasks(prev => {
-      const newList = [newTask, ...prev];
-      return updatePrioritiesByOrder(newList);
-    });
-  };
-
-  useEffect(() => {
-    const todayISO = new Date().toISOString().split('T')[0];
-    if (tasksCreatedToday.length === 2 && tasksCreatedToday.every(t => t.completed)) {
-      if (stats.lastCompletionDate !== todayISO) {
-        setStats(prev => ({
-          completedDaysCount: prev.completedDaysCount + 1,
-          lastCompletionDate: todayISO
-        }));
-      }
-    }
-  }, [tasksCreatedToday, stats.lastCompletionDate]);
-
-  const toggleTask = useCallback((id: string) => {
-    setTasks(prev => {
-      const taskIndex = prev.findIndex(t => t.id === id);
-      if (taskIndex === -1) return prev;
-      const task = prev[taskIndex];
-      if (!task.completed) {
-        if (!window.confirm(`Xác nhận hoàn thành: "${task.title}"?`)) return prev;
-      }
-      const newTasks = [...prev];
-      newTasks[taskIndex] = { ...task, completed: !task.completed };
-      return newTasks;
-    });
-  }, []);
-
-  const deleteTask = useCallback((id: string) => {
-    setTasks(prev => {
-      const filtered = prev.filter(t => t.id !== id);
-      return updatePrioritiesByOrder(filtered);
-    });
-  }, []);
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-
-    if (over && active.id !== over.id) {
-      setTasks((items) => {
-        const oldIndex = items.findIndex((item) => item.id === active.id);
-        const newIndex = items.findIndex((item) => item.id === over.id);
-        const newItems = arrayMove(items, oldIndex, newIndex);
-        return updatePrioritiesByOrder(newItems);
-      });
-    }
+    setTasks(prev => updatePriorities([newTask, ...prev]));
+    setNewTaskTitle('');
   };
 
   const filteredTasks = useMemo(() => {
@@ -261,174 +124,216 @@ const App: React.FC = () => {
     });
   }, [tasks, activeTab]);
 
-  const levelProgress = useMemo(() => {
-    let target = 30;
-    let base = 0;
-    if (currentLevel === 2) { target = 60; base = 30; }
-    if (currentLevel === 3) { target = 90; base = 60; }
-    if (currentLevel === 4) return 100;
-    return ((stats.completedDaysCount - base) / (target - base)) * 100;
-  }, [stats.completedDaysCount, currentLevel]);
+  const handleToggle = (id: string) => {
+    setTasks(prev => {
+      const updated = prev.map(t => t.id === id ? {...t, completed: !t.completed} : t);
+      const task = updated.find(t => t.id === id);
+      
+      // Update stats if both daily tasks are done
+      if (task?.completed) {
+        const todayCompletedCount = updated.filter(t => t.completed && new Date(t.createdAt).toDateString() === new Date().toDateString()).length;
+        const todayISO = new Date().toISOString().split('T')[0];
+        if (todayCompletedCount === 2 && stats.lastCompletionDate !== todayISO) {
+          setStats(s => ({ 
+            ...s, 
+            completedDaysCount: s.completedDaysCount + 1, 
+            lastCompletionDate: todayISO 
+          }));
+        }
+      }
+      return updated;
+    });
+  };
 
   return (
-    <div className={`min-h-screen ${themeClasses.bg} ${themeClasses.text} flex flex-col max-w-2xl mx-auto shadow-2xl transition-all duration-500 overflow-x-hidden relative`}>
-      {/* Timer Bar */}
-      <div className={`py-1 px-4 flex items-center justify-center gap-4 text-[10px] font-black tracking-widest uppercase border-b ${themeClasses.isDark ? 'bg-slate-900 border-slate-800 text-fuchsia-400' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
-        <div className="flex items-center gap-1.5">
-          <i className={`fa-solid fa-hourglass-half ${isTimerRunning ? 'animate-spin' : ''}`}></i>
-          <span>{timerMode === 'WORK' ? 'Làm việc' : 'Nghỉ ngơi'}</span>
-        </div>
-        <span className="text-sm font-black font-mono">{formatTime(timeLeft)}</span>
-        <button 
-          onClick={() => setIsTimerRunning(!isTimerRunning)}
-          className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${isTimerRunning ? 'bg-rose-500 text-white' : themeClasses.primary + ' text-white'}`}
-        >
-          <i className={`fa-solid ${isTimerRunning ? 'fa-pause text-[8px]' : 'fa-play text-[8px]'}`}></i>
-        </button>
-      </div>
-
-      <header className={`sticky top-0 z-30 ${themeClasses.isDark ? 'bg-slate-900/90' : 'bg-white/80'} backdrop-blur-md border-b ${themeClasses.isDark ? 'border-slate-800' : 'border-slate-100'} p-4 pt-6`}>
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <DailyProgressRing current={completedTodayCount} total={2} color={themeClasses.ringColor} isDark={themeClasses.isDark} />
-            <div>
-              <h1 className="text-xl font-black tracking-tight leading-none mb-1">ZEN TASK</h1>
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${themeClasses.primary} text-white`}>LEVEL {currentLevel}</span>
-                <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{stats.completedDaysCount} Days</span>
-              </div>
-            </div>
-          </div>
+    <div className={`flex flex-col md:flex-row h-screen w-full ${theme.bg} ${theme.text} overflow-hidden`}>
+      
+      {/* SIDEBAR (Desktop) / TOP HEADER (Mobile) */}
+      <aside className={`md:w-20 w-full flex md:flex-col flex-row items-center md:py-8 py-4 px-6 md:px-0 border-b md:border-b-0 md:border-r ${theme.panel} z-50`}>
+        <div className={`md:w-12 md:h-12 w-10 h-10 rounded-xl md:rounded-2xl ${theme.primary} flex items-center justify-center text-white shadow-lg md:mb-12 mr-4 md:mr-0`}>
+          <i className="fa-solid fa-z text-xl md:text-2xl font-black"></i>
         </div>
         
-        <div className="space-y-1.5">
-           <div className="flex justify-between items-end">
-              <span className="text-[9px] font-black uppercase opacity-40 tracking-widest">Tiến độ cấp độ</span>
-              <span className="text-[10px] font-black opacity-60 italic">{currentLevel < 4 ? `Lên Cấp ${currentLevel + 1}` : 'Cấp Độ Tối Thượng'}</span>
-           </div>
-           <div className={`w-full h-1.5 ${themeClasses.isDark ? 'bg-slate-800' : 'bg-slate-100'} rounded-full overflow-hidden`}>
-             <div className={`h-full ${themeClasses.primary} transition-all duration-1000 ease-out rounded-full`} style={{ width: `${levelProgress}%` }}></div>
-           </div>
-        </div>
-      </header>
-
-      <main className="flex-1 px-4 py-6 pb-32">
-        {/* Daily Hero Progress Section */}
-        <div className={`mb-8 p-6 rounded-[2.5rem] border overflow-hidden relative ${themeClasses.isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
-          <div className="relative z-10">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h2 className="text-xs font-black uppercase tracking-[0.2em] opacity-40 mb-1">Nhiệm vụ hàng ngày</h2>
-                <p className="text-2xl font-black tracking-tight">
-                  {completedTodayCount === 2 ? 'Đã hoàn thành! 🎉' : 'Đang thực hiện...'}
-                </p>
-              </div>
-              <div className="text-right">
-                <span className={`text-3xl font-black font-mono ${themeClasses.ringColor}`}>
-                  {dailyProgressPercent}%
-                </span>
-              </div>
-            </div>
-            
-            <div className={`w-full h-4 ${themeClasses.isDark ? 'bg-slate-800' : 'bg-slate-100'} rounded-full overflow-hidden p-1`}>
-              <div 
-                className={`h-full ${themeClasses.primary} rounded-full transition-all duration-700 ease-[cubic-bezier(0.34, 1.56, 0.64, 1)] relative`}
-                style={{ width: `${dailyProgressPercent}%` }}
-              >
-                {dailyProgressPercent > 0 && (
-                  <div className="absolute top-0 right-0 bottom-0 w-8 bg-white/20 skew-x-[30deg] animate-[pulse_1s_infinite]"></div>
-                )}
-              </div>
-            </div>
-            
-            <p className="text-[10px] mt-4 font-bold opacity-40 uppercase tracking-widest text-center">
-              {completedTodayCount < 2 ? `Còn ${2 - completedTodayCount} việc nữa để đạt mục tiêu` : 'Bạn đã làm rất tốt hôm nay!'}
-            </p>
-          </div>
-          <div className={`absolute -right-10 -bottom-10 w-40 h-40 rounded-full blur-3xl opacity-10 ${themeClasses.primary}`}></div>
-        </div>
-
-        {/* Tabs Filter */}
-        <div className={`flex p-1 ${themeClasses.isDark ? 'bg-slate-800' : 'bg-slate-100'} rounded-2xl mb-8`}>
-          {(['ALL', 'ACTIVE', 'DONE'] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={`flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-xl ${activeTab === tab ? (themeClasses.isDark ? 'bg-slate-700 text-fuchsia-400 shadow-md' : 'bg-white text-indigo-600 shadow-sm') : 'text-slate-400'}`}>{tab === 'ALL' ? 'Tất cả' : tab === 'ACTIVE' ? 'Đang làm' : 'Đã xong'}</button>
-          ))}
-        </div>
-
-        {/* Task List Header */}
-        <div className="flex justify-between items-center mb-4 px-2">
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${tasksCreatedToday.length >= 2 ? 'bg-rose-500 animate-pulse' : 'bg-indigo-400'}`}></div>
-              <span className="text-[10px] font-black opacity-40 uppercase tracking-widest">Danh sách: {tasksCreatedToday.length}/2 Task</span>
-            </div>
-            <span className="text-[8px] font-bold opacity-30 uppercase italic">Kéo thả để đổi ưu tiên</span>
-        </div>
-
-        {/* Tasks Content with DND Context */}
-        <div className="space-y-3">
-          {filteredTasks.length > 0 ? (
-            <DndContext 
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
+        {/* Desktop Navigation */}
+        <nav className="hidden md:flex flex-col gap-6 flex-1">
+          {[
+            { id: 'ALL', icon: 'fa-layer-group' },
+            { id: 'ACTIVE', icon: 'fa-circle-dot' },
+            { id: 'DONE', icon: 'fa-circle-check' }
+          ].map(item => (
+            <button 
+              key={item.id}
+              onClick={() => setActiveTab(item.id as any)}
+              className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+                activeTab === item.id ? `${theme.primary} text-white shadow-md` : 'text-slate-400 hover:bg-slate-200/50'
+              }`}
             >
-              <SortableContext 
-                items={filteredTasks.map(t => t.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                {filteredTasks.map((task, index) => (
-                  <TaskItem 
-                    key={task.id} 
-                    task={task} 
-                    onToggle={toggleTask} 
-                    onDelete={deleteTask} 
-                    isDark={themeClasses.isDark}
-                    isFirst={index === 0 && activeTab !== 'DONE'}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-          ) : (
-            <div className="text-center py-20">
-              <div className={`w-20 h-20 ${themeClasses.isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} rounded-[2rem] shadow-sm border flex items-center justify-center mx-auto mb-6 transform rotate-6`}><i className={`fa-solid fa-feather-pointed ${themeClasses.accent} opacity-20 text-3xl`}></i></div>
-              <p className="text-xs font-bold opacity-30 uppercase tracking-[0.2em]">Danh sách trống</p>
+              <i className={`fa-solid ${item.icon} text-lg`}></i>
+            </button>
+          ))}
+        </nav>
+
+        <h1 className="md:hidden flex-1 text-lg font-black tracking-tighter uppercase">ZenTask</h1>
+        
+        <div className="md:hidden flex items-center gap-2">
+          <div className={`text-[10px] font-black px-3 py-1 rounded-full ${theme.primary} text-white`}>
+            LV.{currentLevel}
+          </div>
+        </div>
+      </aside>
+
+      {/* MAIN CONTENT AREA */}
+      <main className="flex-1 flex flex-col min-w-0 bg-white/30 dark:bg-slate-900/30 relative">
+        <header className="hidden md:block p-8 pb-4">
+          <h1 className="text-3xl font-black tracking-tighter uppercase mb-1">
+            {activeTab === 'ALL' ? 'Tất cả việc' : activeTab === 'ACTIVE' ? 'Đang làm' : 'Đã xong'}
+          </h1>
+          <p className="text-[10px] font-bold opacity-30 tracking-[0.2em] uppercase">Phím tắt: N (Nhập mới)</p>
+        </header>
+
+        {/* Task List / Mobile Timer Toggle */}
+        <div className="flex-1 overflow-y-auto px-4 md:px-8 py-4 pb-40 md:pb-8">
+          {activeTab === 'TIMER' && (
+            <div className="md:hidden flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+              <PomodoroCard 
+                timeLeft={timeLeft} 
+                isRunning={isTimerRunning} 
+                toggle={() => setIsTimerRunning(!isTimerRunning)} 
+                theme={theme} 
+              />
+              <StatsCard completedCount={completedTodayCount} stats={stats} level={currentLevel} theme={theme} />
+            </div>
+          )}
+
+          {activeTab !== 'TIMER' && (
+            <div className="max-w-3xl mx-auto space-y-4">
+              {filteredTasks.length > 0 ? (
+                <DndContext 
+                  sensors={sensors} 
+                  collisionDetection={closestCenter} 
+                  onDragEnd={(e) => {
+                    const { active, over } = e;
+                    if (over && active.id !== over.id) {
+                      setTasks(items => {
+                        const oldIdx = items.findIndex(i => i.id === active.id);
+                        const newIdx = items.findIndex(i => i.id === over.id);
+                        return updatePriorities(arrayMove(items, oldIdx, newIdx));
+                      });
+                    }
+                  }}
+                >
+                  <SortableContext items={filteredTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+                    {filteredTasks.map((task, idx) => (
+                      <TaskItem 
+                        key={task.id} 
+                        task={task} 
+                        onToggle={handleToggle} 
+                        onDelete={(id) => setTasks(prev => updatePriorities(prev.filter(t => t.id !== id)))} 
+                        isDark={theme.isDark} 
+                        isFirst={idx === 0 && activeTab !== 'DONE'}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
+              ) : (
+                <div className="py-20 md:py-32 flex flex-col items-center opacity-20">
+                  <i className="fa-solid fa-wind text-5xl md:text-6xl mb-6"></i>
+                  <p className="text-xs md:text-sm font-black uppercase tracking-widest text-center">
+                    Bạn đã hoàn thành<br className="md:hidden"/> mọi thứ hôm nay!
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
+
+        {/* Floating Input (Sticks to bottom on Mobile, above Nav) */}
+        {activeTab !== 'TIMER' && activeTab !== 'DONE' && (
+          <div className="fixed md:absolute bottom-20 md:bottom-8 left-0 right-0 p-4 md:p-8 pointer-events-none">
+            <form onSubmit={addTask} className="max-w-3xl mx-auto pointer-events-auto">
+              <div className={`p-1 pl-4 md:pl-6 rounded-[2rem] md:rounded-[2.5rem] flex items-center border transition-all shadow-2xl ${theme.panel}`}>
+                <i className="fa-solid fa-plus opacity-30 mr-3 md:mr-4"></i>
+                <input 
+                  ref={inputRef}
+                  type="text" 
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  placeholder={tasksCreatedToday.length >= 2 ? "Ngày mai nhé!" : "Việc tiếp theo?..."}
+                  disabled={tasksCreatedToday.length >= 2}
+                  className="flex-1 bg-transparent py-4 md:py-5 outline-none font-bold text-sm md:text-lg placeholder:opacity-30 disabled:cursor-not-allowed"
+                />
+                <button type="submit" disabled={!newTaskTitle.trim()} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center text-white transition-all shadow-lg ${theme.primary} active:scale-90 disabled:opacity-0`}>
+                  <i className="fa-solid fa-arrow-up text-base md:text-lg"></i>
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
       </main>
 
-      {/* Floating Action Input */}
-      <div className={`fixed bottom-0 left-0 right-0 p-4 pb-10 bg-gradient-to-t ${themeClasses.isDark ? 'from-slate-950 via-slate-950' : 'from-slate-50 via-slate-50'} to-transparent pointer-events-none z-40 max-w-2xl mx-auto`}>
-        <form onSubmit={addTask} className="relative pointer-events-auto">
-          <div className={`${themeClasses.isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'} flex items-center gap-2 p-2 rounded-[2rem] shadow-2xl border`}>
-            <input type="text" value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} placeholder={tasksCreatedToday.length >= 2 ? "Đã đạt giới hạn hôm nay..." : "Kế hoạch tiếp theo là gì?"} disabled={tasksCreatedToday.length >= 2} className={`flex-1 pl-5 py-4 bg-transparent outline-none ${themeClasses.isDark ? 'text-white' : 'text-slate-800'} placeholder:opacity-30 text-sm font-bold disabled:cursor-not-allowed`} />
-            <button type="submit" disabled={!newTaskTitle.trim() || tasksCreatedToday.length >= 2} className={`w-14 h-14 ${tasksCreatedToday.length >= 2 ? 'bg-slate-700 opacity-20' : themeClasses.primary} text-white rounded-[1.5rem] flex items-center justify-center transition-all shrink-0 active:scale-90 shadow-xl`}><i className="fa-solid fa-chevron-up text-lg"></i></button>
-          </div>
-        </form>
-      </div>
+      {/* UTILITY PANEL (Desktop Only) */}
+      <aside className={`hidden md:flex w-80 p-8 border-l flex-col gap-8 ${theme.panel}`}>
+        <PomodoroCard 
+          timeLeft={timeLeft} 
+          isRunning={isTimerRunning} 
+          toggle={() => setIsTimerRunning(!isTimerRunning)} 
+          theme={theme} 
+        />
+        <StatsCard completedCount={completedTodayCount} stats={stats} level={currentLevel} theme={theme} />
+      </aside>
 
-      {/* Timer Alert Popup */}
-      {showTimerAlert && (
-        <div className="fixed inset-0 bg-rose-600 z-[100] flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in duration-300">
-           <div className="w-32 h-32 bg-white/20 rounded-full flex items-center justify-center mb-12 animate-pulse">
-              <i className="fa-solid fa-bell text-white text-6xl"></i>
-           </div>
-           <h2 className="text-white text-5xl font-black text-center mb-4 tracking-tighter uppercase leading-none">
-             {timerMode === 'WORK' ? 'Xong việc rồi!' : 'Hết giờ nghỉ!'}
-           </h2>
-           <p className="text-rose-100 text-xl font-bold mb-12 uppercase tracking-widest text-center">
-             {timerMode === 'WORK' ? 'Đã đến lúc nghỉ ngơi 5 phút' : 'Quay lại làm việc thôi nào'}
-           </p>
-           <button 
-             onClick={startNextCycle}
-             className="w-full max-w-xs py-6 bg-white text-rose-600 rounded-[2.5rem] font-black text-lg uppercase tracking-widest shadow-2xl active:scale-95 transition-transform"
-           >
-             Bắt đầu ngay
-           </button>
-        </div>
-      )}
+      {/* BOTTOM NAV (Mobile Only) */}
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 h-16 flex items-center justify-around border-t z-50 ${theme.panel}`}>
+        {[
+          { id: 'ALL', icon: 'fa-layer-group', label: 'Tất cả' },
+          { id: 'ACTIVE', icon: 'fa-circle-dot', label: 'Việc làm' },
+          { id: 'TIMER', icon: 'fa-stopwatch', label: 'Tập trung' },
+          { id: 'DONE', icon: 'fa-circle-check', label: 'Đã xong' }
+        ].map(item => (
+          <button 
+            key={item.id}
+            onClick={() => setActiveTab(item.id as any)}
+            className={`flex flex-col items-center gap-1 transition-all ${
+              activeTab === item.id ? theme.primaryText : 'text-slate-400'
+            }`}
+          >
+            <i className={`fa-solid ${item.icon} text-lg`}></i>
+            <span className="text-[10px] font-bold uppercase tracking-tighter">{item.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 };
+
+// Sub-components for cleaner code
+const PomodoroCard = ({ timeLeft, isRunning, toggle, theme }: any) => (
+  <div className={`p-8 rounded-[2.5rem] border ${theme.isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'} text-center shadow-sm`}>
+    <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-4">Pomodoro</h3>
+    <div className="text-5xl md:text-6xl font-black font-mono mb-6 tracking-tighter">
+      {Math.floor(timeLeft / 60).toString().padStart(2, '0')}:{(timeLeft % 60).toString().padStart(2, '0')}
+    </div>
+    <button 
+      onClick={toggle}
+      className={`w-full py-4 rounded-2xl text-white font-black uppercase text-xs tracking-widest shadow-lg transition-all active:scale-95 ${isRunning ? 'bg-rose-500' : theme.primary}`}
+    >
+      {isRunning ? 'Dừng lại' : 'Bắt đầu'}
+    </button>
+  </div>
+);
+
+const StatsCard = ({ completedCount, stats, level, theme }: any) => (
+  <div className="flex-1 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center bg-white dark:bg-slate-900 shadow-sm">
+    <div className="text-4xl md:text-5xl font-black mb-2">{completedCount}/2</div>
+    <p className="text-[10px] font-bold opacity-30 uppercase tracking-widest mb-8">Mục tiêu hôm nay</p>
+    <div className="w-full bg-slate-100 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden mb-8">
+      <div className={`h-full ${theme.primary} transition-all duration-1000 ease-out`} style={{ width: `${(completedCount / 2) * 100}%` }}></div>
+    </div>
+    <div className="text-center">
+      <div className={`text-xs font-black uppercase mb-1 ${theme.primaryText}`}>Cấp độ {level}</div>
+      <div className="text-sm font-bold opacity-60 italic">"{stats.completedDaysCount} ngày bền bỉ"</div>
+    </div>
+  </div>
+);
 
 export default App;
